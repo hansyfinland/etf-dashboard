@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Portfolio Monitor — 13 ETF Book</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0a0d12;
+    --panel:#10151d;
+    --panel-2:#141a24;
+    --line:#232b38;
+    --amber:#e8a13a;
+    --amber-dim:#8a6420;
+    --cyan:#3fd0e0;
+    --cyan-dim:#1f6d75;
+    --text:#e6e9ee;
+    --muted:#7a8496;
+    --faint:#4b5566;
+    --pos:#3ecf8e;
+    --neg:#f0575f;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+
+  .wrap{max-width:1400px;margin:0 auto;padding:22px 26px 60px;}
+
+  /* ---- header ---- */
+  header{
+    display:flex;justify-content:space-between;align-items:flex-end;
+    border-bottom:2px solid var(--amber);
+    padding-bottom:14px;margin-bottom:18px;flex-wrap:wrap;gap:14px;
+  }
+  .brand{display:flex;flex-direction:column;gap:4px;}
+  .brand .tag{
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:3px;
+    color:var(--amber);text-transform:uppercase;
+  }
+  .brand h1{margin:0;font-size:22px;font-weight:600;letter-spacing:0.5px;}
+  .brand .sub{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted);}
+
+  .status{display:flex;flex-direction:column;align-items:flex-end;gap:6px;}
+  .status .clock{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--cyan);}
+  .status .updated{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--faint);}
+  .refresh-btn{
+    background:var(--panel-2);border:1px solid var(--line);color:var(--amber);
+    font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:1.5px;
+    padding:7px 14px;cursor:pointer;text-transform:uppercase;border-radius:2px;
+    transition:all .15s ease;
+  }
+  .refresh-btn:hover{background:var(--amber);color:#0a0d12;border-color:var(--amber);}
+  .refresh-btn:disabled{opacity:.4;cursor:wait;}
+
+  /* ---- summary strip ---- */
+  .summary-strip{
+    display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);margin-bottom:22px;
+  }
+  .stat{background:var(--panel);padding:14px 18px;}
+  .stat .lbl{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--faint);text-transform:uppercase;margin-bottom:6px;}
+  .stat .val{font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600;}
+  .stat .val.pos{color:var(--pos);}
+  .stat .val.neg{color:var(--neg);}
+
+  /* ---- layout: grid + allocation ---- */
+  .layout{display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start;}
+  @media (max-width:1000px){.layout{grid-template-columns:1fr;}}
+
+  /* ---- ETF grid ---- */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;}
+  .card{
+    background:var(--panel);border:1px solid var(--line);border-radius:2px;
+    padding:14px 16px;position:relative;overflow:hidden;
+  }
+  .card::before{
+    content:'';position:absolute;top:0;left:0;bottom:0;width:3px;
+    background:var(--asset-color,var(--amber));
+  }
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:2px;}
+  .ticker-row{display:flex;align-items:baseline;gap:8px;}
+  .ticker{font-family:'IBM Plex Mono',monospace;font-size:16px;font-weight:700;letter-spacing:0.5px;}
+  .weight-tag{
+    font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);
+    border:1px solid var(--line);padding:1px 6px;border-radius:10px;
+  }
+  .asset-class{font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px;}
+
+  .price-row{display:flex;justify-content:space-between;align-items:flex-end;margin:6px 0 8px;}
+  .price{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:600;}
+  .changes{text-align:right;}
+  .chg{font-family:'IBM Plex Mono',monospace;font-size:12px;}
+  .chg-lbl{font-size:9px;color:var(--faint);letter-spacing:1px;}
+
+  .spark{height:52px;width:100%;margin-top:4px;}
+  .card.loading .spark{display:flex;align-items:center;justify-content:center;}
+  .skeleton{color:var(--faint);font-family:'IBM Plex Mono',monospace;font-size:11px;}
+  .err{color:var(--neg);font-family:'IBM Plex Mono',monospace;font-size:11px;}
+
+  /* ---- allocation panel ---- */
+  .alloc-panel{background:var(--panel);border:1px solid var(--line);padding:16px;position:sticky;top:16px;}
+  .alloc-panel h3{
+    margin:0 0 12px;font-size:11px;letter-spacing:2px;color:var(--amber);
+    text-transform:uppercase;font-family:'IBM Plex Mono',monospace;
+    border-bottom:1px solid var(--line);padding-bottom:10px;
+  }
+  .alloc-canvas-wrap{position:relative;height:210px;margin-bottom:14px;}
+  .alloc-legend{display:flex;flex-direction:column;gap:7px;}
+  .alloc-item{display:flex;justify-content:space-between;align-items:center;font-size:12px;}
+  .alloc-item .name{display:flex;align-items:center;gap:8px;color:var(--text);}
+  .dot{width:9px;height:9px;border-radius:2px;display:inline-block;}
+  .alloc-item .pct{font-family:'IBM Plex Mono',monospace;color:var(--muted);}
+  .alloc-divider{border-top:1px solid var(--line);margin:14px 0;}
+  .holdings-list{display:flex;flex-direction:column;gap:5px;max-height:280px;overflow-y:auto;}
+  .holdings-list .hl-row{
+    display:flex;justify-content:space-between;font-family:'IBM Plex Mono',monospace;font-size:11px;
+    color:var(--muted);padding:2px 0;
+  }
+  .holdings-list .hl-row b{color:var(--text);font-weight:600;}
+
+  footer{margin-top:26px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--faint);line-height:1.7;border-top:1px solid var(--line);padding-top:14px;}
+  footer b{color:var(--muted);}
+
+  ::-webkit-scrollbar{width:6px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="tag">Portfolio Monitor</div>
+      <h1>13-ETF Book — Multi-Asset Allocation</h1>
+      <div class="sub mono">Equities · Fixed Income · Real Assets · Alternatives</div>
+    </div>
+    <div class="status">
+      <div class="clock mono" id="clock">--:--:--</div>
+      <button class="refresh-btn" id="refreshBtn" onclick="refreshAll()">Reload Data</button>
+      <div class="updated mono" id="lastUpdated">Last updated: —</div>
+    </div>
+  </header>
+
+  <div class="summary-strip">
+    <div class="stat">
+      <div class="lbl">Weighted 12M Return</div>
+      <div class="val" id="statWeighted12m">—</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Weighted Day Change</div>
+      <div class="val" id="statWeightedDay">—</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Holdings</div>
+      <div class="val">13</div>
+    </div>
+    <div class="stat">
+      <div class="lbl">Data Source</div>
+      <div class="val" style="font-size:14px;color:var(--cyan);">Stooq (Daily)</div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="grid" id="grid"></div>
+
+    <div class="alloc-panel">
+      <h3>Allocation by Asset Class</h3>
+      <div class="alloc-canvas-wrap">
+        <canvas id="allocChart"></canvas>
+      </div>
+      <div class="alloc-legend" id="allocLegend"></div>
+      <div class="alloc-divider"></div>
+      <h3 style="margin-bottom:10px;">All Holdings</h3>
+      <div class="holdings-list" id="holdingsList"></div>
+    </div>
+  </div>
+
+  <footer>
+    <div><b>Auto-refresh:</b> a GitHub Action fetches fresh data from Stooq server-side every morning and updates data.json — this page just displays whatever data.json currently holds, so it's up to date whether or not this tab is ever open.</div>
+    <div><b>Why this way:</b> Stooq's servers don't send the CORS headers browsers require, so this page cannot fetch price data directly from JavaScript. Fetching server-side (outside a browser) sidesteps that restriction entirely.</div>
+    <div><b>Prices:</b> daily close data from Stooq, typically reflecting the prior close outside of market hours.</div>
+  </footer>
+
+</div>
+
+<script>
+const HOLDINGS = [
+  { t:'SPY',  w:13, cls:'Equities' },
+  { t:'QQQ',  w:5,  cls:'Equities' },
+  { t:'IWM',  w:4,  cls:'Equities' },
+  { t:'USMV', w:6,  cls:'Equities' },
+  { t:'EFA',  w:8,  cls:'Equities' },
+  { t:'EEMV', w:4,  cls:'Equities' },
+  { t:'VGIT', w:5,  cls:'Fixed Income' },
+  { t:'VTIP', w:10, cls:'Fixed Income' },
+  { t:'SGOV', w:6,  cls:'Fixed Income' },
+  { t:'GLD',  w:14, cls:'Real Assets' },
+  { t:'PDBC', w:7,  cls:'Real Assets' },
+  { t:'DBMF', w:12, cls:'Alternatives' },
+  { t:'KMLM', w:6,  cls:'Alternatives' },
+];
+
+const CLASS_COLOR = {
+  'Equities':'#e8a13a',
+  'Fixed Income':'#3fd0e0',
+  'Real Assets':'#c084fc',
+  'Alternatives':'#3ecf8e'
+};
+
+let sparkCharts = {};
+let allocChart = null;
+let lastData = {}; // ticker -> {closes, dates, price, dayChg, ret12m}
+
+function buildStaticShell(){
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  HOLDINGS.forEach(h => {
+    const card = document.createElement('div');
+    card.className = 'card loading';
+    card.id = 'card-' + h.t;
+    card.style.setProperty('--asset-color', CLASS_COLOR[h.cls]);
+    card.innerHTML = `
+      <div class="card-top">
+        <div class="ticker-row">
+          <span class="ticker">${h.t}</span>
+        </div>
+        <span class="weight-tag">${h.w}%</span>
+      </div>
+      <div class="asset-class">${h.cls}</div>
+      <div class="price-row">
+        <div class="price" id="price-${h.t}">···</div>
+        <div class="changes">
+          <div class="chg-lbl">1D / 12M</div>
+          <div class="chg" id="chg-${h.t}">···</div>
+        </div>
+      </div>
+      <div class="spark"><canvas id="spark-${h.t}" width="260" height="52"></canvas></div>
+    `;
+    grid.appendChild(card);
+  });
+
+  const hl = document.getElementById('holdingsList');
+  hl.innerHTML = HOLDINGS.slice().sort((a,b)=>b.w-a.w).map(h =>
+    `<div class="hl-row"><span>${h.t} <span style="color:var(--faint)">(${h.cls})</span></span><b>${h.w}%</b></div>`
+  ).join('');
+
+  buildAllocPanel();
+}
+
+function buildAllocPanel(){
+  const byClass = {};
+  HOLDINGS.forEach(h => byClass[h.cls] = (byClass[h.cls]||0) + h.w);
+  const labels = Object.keys(byClass);
+  const values = labels.map(l => byClass[l]);
+  const colors = labels.map(l => CLASS_COLOR[l]);
+
+  const ctx = document.getElementById('allocChart').getContext('2d');
+  if (allocChart) allocChart.destroy();
+  allocChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: { labels, datasets:[{ data: values, backgroundColor: colors, borderColor:'#10151d', borderWidth:2 }] },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      cutout:'68%',
+      plugins:{ legend:{ display:false }, tooltip:{
+        callbacks:{ label: (ctx) => ` ${ctx.label}: ${ctx.raw}%` }
+      }}
+    }
+  });
+
+  document.getElementById('allocLegend').innerHTML = labels.map(l =>
+    `<div class="alloc-item"><span class="name"><span class="dot" style="background:${CLASS_COLOR[l]}"></span>${l}</span><span class="pct">${byClass[l]}%</span></div>`
+  ).join('');
+}
+
+// Stooq daily CSV: https://stooq.com/q/d/l/?s=SPY.US&d1=YYYYMMDD&d2=YYYYMMDD&i=d
+// Data is pre-fetched server-side by scripts/fetch_data.py (run on a
+// schedule via GitHub Actions) and saved to data.json alongside this file.
+// Reading it here is a same-origin request, so CORS never comes into play.
+let dataStore = null;
+
+async function loadDataJson(){
+  const resp = await fetch('./data.json?_=' + Date.now()); // cache-bust
+  if (!resp.ok) throw new Error('data.json not found (HTTP ' + resp.status + ')');
+  dataStore = await resp.json();
+}
+
+function renderTicker(h){
+  const cardEl = document.getElementById('card-' + h.t);
+  const rec = dataStore && dataStore.holdings ? dataStore.holdings[h.t] : null;
+  if (!rec || !rec.closes || rec.closes.length < 2) {
+    cardEl.classList.remove('loading');
+    document.getElementById('price-' + h.t).innerHTML = `<span class="err">n/a</span>`;
+    document.getElementById('chg-' + h.t).innerHTML = `<span class="err">no data</span>`;
+    return;
+  }
+  const { closes, price, day_change_pct, ret_12m_pct } = rec;
+  lastData[h.t] = { closes, price, dayChg: day_change_pct, ret12m: ret_12m_pct };
+  renderCard(h, { closes, price, dayChg: day_change_pct, ret12m: ret_12m_pct });
+  cardEl.classList.remove('loading');
+}
+
+function renderCard(h, data){
+  document.getElementById('price-' + h.t).textContent = '$' + data.price.toFixed(2);
+  const dayColor = data.dayChg >= 0 ? 'pos' : 'neg';
+  const retColor = data.ret12m >= 0 ? 'pos' : 'neg';
+  const daySign = data.dayChg >= 0 ? '+' : '';
+  const retSign = data.ret12m >= 0 ? '+' : '';
+  document.getElementById('chg-' + h.t).innerHTML =
+    `<span style="color:var(--${dayColor})">${daySign}${data.dayChg.toFixed(2)}%</span> / <span style="color:var(--${retColor})">${retSign}${data.ret12m.toFixed(2)}%</span>`;
+
+  const ctx = document.getElementById('spark-' + h.t).getContext('2d');
+  if (sparkCharts[h.t]) sparkCharts[h.t].destroy();
+  const lineColor = data.ret12m >= 0 ? '#3ecf8e' : '#f0575f';
+  sparkCharts[h.t] = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: data.closes.map((_,i)=>i),
+      datasets: [{
+        data: data.closes,
+        borderColor: lineColor,
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.15,
+        fill: true,
+        backgroundColor: (ctxx) => {
+          const g = ctxx.chart.ctx.createLinearGradient(0,0,0,52);
+          g.addColorStop(0, lineColor + '33');
+          g.addColorStop(1, lineColor + '00');
+          return g;
+        }
+      }]
+    },
+    options: {
+      responsive:false,
+      animation:false,
+      plugins:{ legend:{display:false}, tooltip:{enabled:false} },
+      scales:{ x:{ display:false }, y:{ display:false } },
+      elements:{ point:{ radius:0 } }
+    }
+  });
+}
+
+function updateSummaryStats(){
+  let weightedDay = 0, weighted12m = 0, totalW = 0;
+  HOLDINGS.forEach(h => {
+    const d = lastData[h.t];
+    if (!d) return;
+    weightedDay += d.dayChg * (h.w/100);
+    weighted12m += d.ret12m * (h.w/100);
+    totalW += h.w/100;
+  });
+  if (totalW === 0) return;
+  const dEl = document.getElementById('statWeightedDay');
+  const rEl = document.getElementById('statWeighted12m');
+  const dv = weightedDay, rv = weighted12m;
+  dEl.textContent = (dv>=0?'+':'') + dv.toFixed(2) + '%';
+  rEl.textContent = (rv>=0?'+':'') + rv.toFixed(2) + '%';
+  dEl.className = 'val ' + (dv>=0?'pos':'neg');
+  rEl.className = 'val ' + (rv>=0?'pos':'neg');
+}
+
+async function refreshAll(){
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true;
+  btn.textContent = 'Loading…';
+  try {
+    await loadDataJson();
+    HOLDINGS.forEach(renderTicker);
+    updateSummaryStats();
+    const genAt = dataStore.generated_at ? new Date(dataStore.generated_at).toLocaleString() : 'unknown';
+    document.getElementById('lastUpdated').textContent = 'Data generated: ' + genAt;
+  } catch (err) {
+    console.error(err);
+    document.getElementById('lastUpdated').textContent = 'Could not load data.json — see console';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Reload Data';
+}
+
+// Just a live clock — the actual data refresh happens server-side via the
+// GitHub Action, not from this tab, so it works even when nothing is open.
+function tickClock(){
+  document.getElementById('clock').textContent = new Date().toLocaleTimeString();
+}
+setInterval(tickClock, 1000);
+
+buildStaticShell();
+refreshAll();
+</script>
+</body>
+</html>
