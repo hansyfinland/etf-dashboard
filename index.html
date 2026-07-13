@@ -95,7 +95,7 @@
   .chg{font-family:'IBM Plex Mono',monospace;font-size:12px;}
   .chg-lbl{font-size:9px;color:var(--faint);letter-spacing:1px;}
 
-  .spark{height:52px;width:100%;margin-top:4px;}
+  .spark{height:52px;width:100%;margin-top:4px;position:relative;}
   .card.loading .spark{display:flex;align-items:center;justify-content:center;}
   .skeleton{color:var(--faint);font-family:'IBM Plex Mono',monospace;font-size:11px;}
   .err{color:var(--neg);font-family:'IBM Plex Mono',monospace;font-size:11px;}
@@ -237,7 +237,7 @@ function buildStaticShell(){
           <div class="chg" id="chg-${h.t}">···</div>
         </div>
       </div>
-      <div class="spark"><canvas id="spark-${h.t}" width="260" height="52"></canvas></div>
+      <div class="spark"><canvas id="spark-${h.t}"></canvas></div>
     `;
     grid.appendChild(card);
   });
@@ -290,17 +290,26 @@ async function loadDataJson(){
 
 function renderTicker(h){
   const cardEl = document.getElementById('card-' + h.t);
-  const rec = dataStore && dataStore.holdings ? dataStore.holdings[h.t] : null;
-  if (!rec || !rec.closes || rec.closes.length < 2) {
+  try {
+    const rec = dataStore && dataStore.holdings ? dataStore.holdings[h.t] : null;
+    if (!rec || !rec.closes || rec.closes.length < 2) {
+      cardEl.classList.remove('loading');
+      document.getElementById('price-' + h.t).innerHTML = `<span class="err">n/a</span>`;
+      document.getElementById('chg-' + h.t).innerHTML = `<span class="err">no data</span>`;
+      return;
+    }
+    const { closes, price, day_change_pct, ret_12m_pct } = rec;
+    lastData[h.t] = { closes, price, dayChg: day_change_pct, ret12m: ret_12m_pct };
+    renderCard(h, { closes, price, dayChg: day_change_pct, ret12m: ret_12m_pct });
     cardEl.classList.remove('loading');
-    document.getElementById('price-' + h.t).innerHTML = `<span class="err">n/a</span>`;
-    document.getElementById('chg-' + h.t).innerHTML = `<span class="err">no data</span>`;
-    return;
+  } catch (err) {
+    // A problem with ONE card (e.g. a bad chart draw) must never stop the
+    // rest of the grid from rendering.
+    console.error('renderTicker failed for', h.t, err);
+    cardEl.classList.remove('loading');
+    const chgEl = document.getElementById('chg-' + h.t);
+    if (chgEl) chgEl.innerHTML = `<span class="err">render error — see console</span>`;
   }
-  const { closes, price, day_change_pct, ret_12m_pct } = rec;
-  lastData[h.t] = { closes, price, dayChg: day_change_pct, ret12m: ret_12m_pct };
-  renderCard(h, { closes, price, dayChg: day_change_pct, ret12m: ret_12m_pct });
-  cardEl.classList.remove('loading');
 }
 
 function renderCard(h, data){
@@ -335,7 +344,8 @@ function renderCard(h, data){
       }]
     },
     options: {
-      responsive:false,
+      responsive:true,
+      maintainAspectRatio:false,
       animation:false,
       plugins:{ legend:{display:false}, tooltip:{enabled:false} },
       scales:{ x:{ display:false }, y:{ display:false } },
