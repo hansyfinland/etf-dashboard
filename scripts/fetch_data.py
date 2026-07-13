@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 """
-Fetches ~13 months of daily closes for the portfolio's ETFs from Stooq
-and writes data.json for the dashboard to read.
-
-This runs server-side (GitHub Actions), not in a browser, so the CORS
-restriction that blocks client-side fetch() calls does not apply here.
+Fetches ~12 months of daily closes for the portfolio's ETFs from Yahoo
+Finance's public chart endpoint and writes data.json for the dashboard
+to read.
+ 
+This runs server-side (GitHub Actions), not in a browser, so browser CORS
+restrictions do not apply here. We use Yahoo instead of Stooq because
+Stooq's download endpoint enforces a per-IP daily rate limit that's
+frequently already exhausted on GitHub's shared runner IP ranges.
 """
-import csv
-import io
 import json
 import sys
 import time
-from datetime import date, timedelta
+from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
-
+ 
 HOLDINGS = [
     {"t": "SPY",  "w": 13, "cls": "Equities"},
     {"t": "QQQ",  "w": 5,  "cls": "Equities"},
@@ -30,52 +31,71 @@ HOLDINGS = [
     {"t": "DBMF", "w": 12, "cls": "Alternatives"},
     {"t": "KMLM", "w": 6,  "cls": "Alternatives"},
 ]
-
-# A normal browser-style User-Agent avoids being blocked as an obvious bot.
+ 
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    )
+    ),
+    "Accept": "application/json",
 }
-
-
-def stooq_url(ticker: str) -> str:
-    d2 = date.today()
-    d1 = d2 - timedelta(days=395)  # ~13 months, gives buffer for the 12M window
-    fmt = lambda d: d.strftime("%Y%m%d")
+ 
+# Two Yahoo endpoints exist (query1/query2) that occasionally differ in
+# availability; try both.
+YAHOO_HOSTS = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"]
+ 
+ 
+def yahoo_url(host: str, ticker: str) -> str:
     return (
-        f"https://stooq.com/q/d/l/?s={ticker.lower()}.us"
-        f"&d1={fmt(d1)}&d2={fmt(d2)}&i=d"
+        f"https://{host}/v8/finance/chart/{ticker}"
+        f"?range=1y&interval=1d&includePrePost=false"
     )
-
-
+ 
+ 
 def fetch_ticker(ticker: str, retries: int = 3):
-    url = stooq_url(ticker)
     last_err = None
     for attempt in range(retries):
+        host = YAHOO_HOSTS[attempt % len(YAHOO_HOSTS)]
+        url = yahoo_url(host, ticker)
         try:
             req = Request(url, headers=HEADERS)
             with urlopen(req, timeout=20) as resp:
                 raw = resp.read().decode("utf-8")
-            reader = csv.DictReader(io.StringIO(raw))
-            rows = [r for r in reader if r.get("Close")]
-            if len(rows) < 2:
-                raise ValueError(f"Not enough rows returned for {ticker}")
-            dates = [r["Date"] for r in rows]
-            closes = [float(r["Close"]) for r in rows]
+            payload = json.loads(raw)
+            result = payload.get("chart", {}).get("result")
+            if not result:
+                err = payload.get("chart", {}).get("error")
+                raise ValueError(f"No result in response ({err})")
+            r0 = result[0]
+            timestamps = r0.get("timestamp") or []
+            closes_raw = (
+                r0.get("indicators", {}).get("quote", [{}])[0].get("close") or []
+            )
+            if len(timestamps) < 2 or len(closes_raw) < 2:
+                raise ValueError("Not enough rows returned")
+ 
+            dates, closes = [], []
+            for ts, c in zip(timestamps, closes_raw):
+                if c is None:
+                    continue  # skip non-trading / missing days
+                dates.append(
+                    datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+                )
+                closes.append(float(c))
+ 
+            if len(closes) < 2:
+                raise ValueError("All closes were null")
+ 
             return {"dates": dates, "closes": closes}
-        except (HTTPError, URLError, ValueError) as e:
+        except (HTTPError, URLError, ValueError, json.JSONDecodeError) as e:
             last_err = e
             time.sleep(2 * (attempt + 1))
     raise RuntimeError(f"Failed to fetch {ticker} after {retries} attempts: {last_err}")
-
-
+ 
+ 
 def main():
-    out = {"generated_at": None, "holdings": {}}
-    from datetime import datetime, timezone
-    out["generated_at"] = datetime.now(timezone.utc).isoformat()
-
+    out = {"generated_at": datetime.now(timezone.utc).isoformat(), "holdings": {}}
+ 
     failures = []
     for h in HOLDINGS:
         try:
@@ -97,17 +117,16 @@ def main():
         except Exception as e:
             failures.append(h["t"])
             print(f"FAIL {h['t']}: {e}", file=sys.stderr)
-        time.sleep(1)  # be polite between requests
-
+        time.sleep(0.5)  # be polite between requests
+ 
     with open("data.json", "w") as f:
         json.dump(out, f, indent=2)
-
+ 
     print(f"\nWrote data.json with {len(out['holdings'])}/{len(HOLDINGS)} holdings.")
     if failures:
         print(f"Failed tickers: {failures}", file=sys.stderr)
-        # Don't hard-fail the whole workflow over one bad ticker;
-        # the dashboard will show 'n/a' for anything missing.
-
-
+ 
+ 
 if __name__ == "__main__":
     main()
+ 
