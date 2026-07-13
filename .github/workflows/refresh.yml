@@ -1,0 +1,37 @@
+name: Refresh ETF Dashboard Data
+
+on:
+  schedule:
+    # 06:00 UTC ≈ 07:00 Europe/London during GMT (winter).
+    # During BST (late Mar–late Oct) this runs at 07:00 UTC = 08:00 London.
+    # GitHub Actions cron is UTC-only and does not shift for DST; if you
+    # want a precise 07:00 London year-round, add a second cron line at
+    # 05:00 UTC for the summer half of the year, or adjust manually.
+    - cron: '0 6 * * *'
+  workflow_dispatch: {}  # lets you trigger a manual refresh from the Actions tab
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Fetch latest ETF data
+        run: python scripts/fetch_data.py
+
+      - name: Commit updated data.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.json
+          git diff --quiet --cached || git commit -m "Auto-refresh ETF data $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push
